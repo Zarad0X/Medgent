@@ -1,0 +1,92 @@
+from fastapi.testclient import TestClient
+from uuid import uuid4
+
+from app.main import app
+
+AUTH_HEADERS = {"X-API-Key": "dev-local-key"}
+
+
+def test_case_and_job_idempotency_flow():
+    with TestClient(app) as client:
+        case_resp = client.post(
+            "/api/v1/cases",
+            json={"patient_pseudo_id": "p-001"},
+            headers=AUTH_HEADERS,
+        )
+        assert case_resp.status_code == 201
+        case_id = case_resp.json()["case_id"]
+
+        payload = {
+            "case_id": case_id,
+            "stage": "inference",
+            "idempotency_key": f"idem-{uuid4()}",
+        }
+        first = client.post("/api/v1/jobs", json=payload, headers=AUTH_HEADERS)
+        second = client.post("/api/v1/jobs", json=payload, headers=AUTH_HEADERS)
+        assert first.status_code == 201
+        assert second.status_code == 201
+        assert first.json()["job_id"] == second.json()["job_id"]
+
+        job_id = first.json()["job_id"]
+        to_running = client.post(
+            f"/api/v1/jobs/{job_id}/advance",
+            json={"target_state": "running"},
+            headers=AUTH_HEADERS,
+        )
+        assert to_running.status_code == 200
+        assert to_running.json()["state"] == "running"
+
+        to_succeeded = client.post(
+            f"/api/v1/jobs/{job_id}/advance",
+            json={"target_state": "succeeded"},
+            headers=AUTH_HEADERS,
+        )
+        assert to_succeeded.status_code == 200
+        assert to_succeeded.json()["state"] == "succeeded"
+
+
+def test_simple_rag_qc_and_mock_inference():
+    with TestClient(app) as client:
+        ingest = client.post(
+            "/api/v1/rag/ingest",
+            json={
+                "source": "hospital_sop",
+                "source_version": "2026.01",
+                "title": "肺结节随访",
+                "content": "病灶变化评估建议结合历史影像对比。",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert ingest.status_code == 200
+
+        search = client.post(
+            "/api/v1/rag/search",
+            json={"query": "病灶 变化", "top_k": 3},
+            headers=AUTH_HEADERS,
+        )
+        assert search.status_code == 200
+        assert len(search.json()["items"]) >= 1
+
+        qc = client.post(
+            "/api/v1/qc/evaluate",
+            json={"findings": "病灶较前缩小，变化趋势稳定。"},
+            headers=AUTH_HEADERS,
+        )
+        assert qc.status_code == 200
+        assert qc.json()["status"] in {"pass", "review_required", "blocked"}
+
+        infer = client.post(
+            "/api/v1/inference/mock",
+            json={"case_id": "c1", "notes": "右肺病灶较前变化不大，建议继续随访。"},
+            headers=AUTH_HEADERS,
+        )
+        assert infer.status_code == 200
+        assert infer.json()["case_id"] == "c1"
+
+        configured = client.post(
+            "/api/v1/inference/run",
+            json={"case_id": "c2", "notes": "左肺病灶随访。"},
+            headers=AUTH_HEADERS,
+        )
+        assert configured.status_code == 200
+        assert configured.json()["case_id"] == "c2"
