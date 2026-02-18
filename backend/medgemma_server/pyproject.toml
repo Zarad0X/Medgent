@@ -1,0 +1,14 @@
+[project]
+name = "medgemma-server"
+version = "0.1.0"
+description = "Standalone MedGemma inference service"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "transformers>=4.56.0",
+  "torch>=2.3.0",
+  "accelerate>=0.34.0",
+  "bitsandbytes>=0.43.0",
+  "pydantic-settings>=2.6.0",
+]

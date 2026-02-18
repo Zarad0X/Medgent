@@ -28,7 +28,7 @@ class MockInferenceProvider:
         text = notes.strip()
         short = text if len(text) <= 80 else f"{text[:77]}..."
         findings = [
-            "病灶轮廓较前清晰，建议继续随访。",
+            "病灶较前变化稳定，建议继续随访。",
             "未见明显新发高危征象。",
         ]
         return InferenceResult(

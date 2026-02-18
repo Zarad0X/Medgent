@@ -12,6 +12,7 @@ from app.schemas import (
     ArtifactResponse,
     CaseCreateRequest,
     CaseResponse,
+    InferencePingResponse,
     JobAdvanceRequest,
     JobCreateRequest,
     JobResponse,
@@ -24,9 +25,14 @@ from app.schemas import (
     RagSearchItem,
     RagSearchRequest,
     RagSearchResponse,
+    WorkflowResultResponse,
+    WorkflowSubmitRequest,
+    WorkflowSubmitResponse,
 )
+from app.core.config import get_settings
 from app.services.inference import run_mock_inference
 from app.services.inference import InferenceProviderError, run_configured_inference
+from app.services.medgemma import ping_medgemma_health
 from app.services.orchestrator import (
     InvalidTransitionError,
     NotFoundError,
@@ -37,6 +43,7 @@ from app.services.orchestrator import (
 from app.services.qc import evaluate_findings
 from app.services.rag import ingest_doc, search_docs
 from app.services.storage import save_upload_file
+from app.services.workflow import get_job_output, submit_workflow
 
 public_router = APIRouter()
 router = APIRouter(dependencies=[Depends(require_api_key)])
@@ -87,6 +94,17 @@ def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -> Job:
     return job
 
 
+@router.post("/workflow/submit", response_model=WorkflowSubmitResponse, status_code=status.HTTP_201_CREATED)
+def workflow_submit(payload: WorkflowSubmitRequest, db: Session = Depends(get_db)) -> WorkflowSubmitResponse:
+    case, job = submit_workflow(
+        db,
+        patient_pseudo_id=payload.patient_pseudo_id,
+        notes=payload.notes,
+        idempotency_key=payload.idempotency_key,
+    )
+    return WorkflowSubmitResponse(case=case, job=job)
+
+
 @router.post("/queue/pull", response_model=QueuePullResponse)
 def pull_queue_job(db: Session = Depends(get_db)) -> QueuePullResponse:
     job = pull_next_queued_job(db)
@@ -99,6 +117,15 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> Job:
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job_not_found")
     return job
+
+
+@router.get("/workflow/jobs/{job_id}/result", response_model=WorkflowResultResponse)
+def get_workflow_result(job_id: str, db: Session = Depends(get_db)) -> WorkflowResultResponse:
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job_not_found")
+    output = get_job_output(db, job_id=job_id)
+    return WorkflowResultResponse(job=job, output=output)
 
 
 @router.post("/jobs/{job_id}/advance", response_model=JobResponse)
@@ -193,3 +220,21 @@ def run_inference(payload: MockInferenceRequest) -> MockInferenceResponse:
         return MockInferenceResponse(**run_configured_inference(payload.case_id, payload.notes))
     except InferenceProviderError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.get("/inference/ping", response_model=InferencePingResponse)
+def ping_inference_provider() -> InferencePingResponse:
+    settings = get_settings()
+    provider = settings.inference_provider
+    if provider == "mock":
+        return InferencePingResponse(provider="mock", reachable=True, detail={"status": "mock_ready"})
+
+    result = ping_medgemma_health()
+    if not result.get("reachable"):
+        return InferencePingResponse(
+            provider="medgemma",
+            reachable=False,
+            detail={"error": result.get("error", "unknown_error")},
+        )
+    return InferencePingResponse(provider="medgemma", reachable=True, detail=result.get("raw"))
+    InferencePingResponse,

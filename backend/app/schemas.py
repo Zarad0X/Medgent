@@ -101,3 +101,25 @@ class MockInferenceResponse(BaseModel):
     summary: str
     findings: list[str]
     confidence: float
+
+
+class WorkflowSubmitRequest(BaseModel):
+    patient_pseudo_id: str = Field(min_length=1, max_length=128)
+    notes: str = Field(min_length=1, max_length=4000)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class WorkflowSubmitResponse(BaseModel):
+    case: CaseResponse
+    job: JobResponse
+
+
+class WorkflowResultResponse(BaseModel):
+    job: JobResponse
+    output: dict | None
+
+
+class InferencePingResponse(BaseModel):
+    provider: str
+    reachable: bool
+    detail: dict | str | None = None

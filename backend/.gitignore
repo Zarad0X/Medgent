@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 medgent.db
+models/
+.env
+data/
+examples/

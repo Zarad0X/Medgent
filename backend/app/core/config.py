@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     inference_provider: Literal["mock", "medgemma"] = "mock"
     medgemma_base_url: str = "http://127.0.0.1:9000"
     medgemma_timeout_seconds: float = 30.0
+    worker_poll_seconds: float = 2.0
 
 
 @lru_cache

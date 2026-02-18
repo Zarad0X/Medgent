@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from uuid import uuid4
 
 from app.main import app
+from app.worker import process_next_job
 
 AUTH_HEADERS = {"X-API-Key": "dev-local-key"}
 
@@ -90,3 +91,32 @@ def test_simple_rag_qc_and_mock_inference():
         )
         assert configured.status_code == 200
         assert configured.json()["case_id"] == "c2"
+
+
+def test_workflow_submit_and_worker_end_to_end():
+    with TestClient(app) as client:
+        submit = client.post(
+            "/api/v1/workflow/submit",
+            json={
+                "patient_pseudo_id": f"p-{uuid4()}",
+                "notes": "右肺病灶较前变化不大，建议继续随访。",
+                "idempotency_key": f"wf-{uuid4()}",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert submit.status_code == 201
+        job_id = submit.json()["job"]["job_id"]
+        assert submit.json()["job"]["state"] == "queued"
+
+        before = client.get(f"/api/v1/workflow/jobs/{job_id}/result", headers=AUTH_HEADERS)
+        assert before.status_code == 200
+        assert before.json()["output"] is None
+
+        worker_result = process_next_job()
+        assert worker_result is not None
+        assert worker_result["job_id"] == job_id
+        assert worker_result["state"] in {"succeeded", "failed"}
+
+        after = client.get(f"/api/v1/workflow/jobs/{job_id}/result", headers=AUTH_HEADERS)
+        assert after.status_code == 200
+        assert after.json()["output"] is not None
