@@ -12,6 +12,12 @@ class InferenceResult:
     summary: str
     findings: list[str]
     confidence: float
+    used_fallback: bool = False
+    run_mode: str = "unknown"
+    model_source: str | None = None
+    generated_token_count: int = 0
+    raw_generated_text: str | None = None
+    raw_generated_text_with_special: str | None = None
 
 
 class InferenceProvider(Protocol):
@@ -36,6 +42,12 @@ class MockInferenceProvider:
             summary=f"Mock推理结论：{short}",
             findings=findings,
             confidence=0.72,
+            used_fallback=False,
+            run_mode="mock",
+            model_source="mock_provider",
+            generated_token_count=0,
+            raw_generated_text=None,
+            raw_generated_text_with_special=None,
         )
 
 
@@ -55,6 +67,16 @@ class MedGemmaInferenceProvider:
         try:
             with request.urlopen(req, timeout=self.timeout_seconds) as resp:
                 body = resp.read().decode("utf-8")
+        except error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8")
+            except Exception:
+                detail = ""
+            message = f"medgemma_http_{exc.code}"
+            if detail:
+                message = f"{message}: {detail}"
+            raise InferenceProviderError(message) from exc
         except error.URLError as exc:
             raise InferenceProviderError(f"medgemma_unreachable: {exc}") from exc
 
@@ -72,6 +94,18 @@ class MedGemmaInferenceProvider:
             summary=str(data.get("summary") or ""),
             findings=[str(item) for item in findings],
             confidence=float(data.get("confidence") or 0.0),
+            used_fallback=bool(data.get("used_fallback", False)),
+            run_mode=str(data.get("run_mode") or "medgemma_unknown"),
+            model_source=str(data.get("model_source") or self.base_url),
+            generated_token_count=int(data.get("generated_token_count") or 0),
+            raw_generated_text=(
+                str(data.get("raw_generated_text")) if data.get("raw_generated_text") is not None else None
+            ),
+            raw_generated_text_with_special=(
+                str(data.get("raw_generated_text_with_special"))
+                if data.get("raw_generated_text_with_special") is not None
+                else None
+            ),
         )
 
 
@@ -93,6 +127,12 @@ def run_mock_inference(case_id: str, notes: str) -> dict:
         "summary": result.summary,
         "findings": result.findings,
         "confidence": result.confidence,
+        "used_fallback": result.used_fallback,
+        "run_mode": result.run_mode,
+        "model_source": result.model_source,
+        "generated_token_count": result.generated_token_count,
+        "raw_generated_text": result.raw_generated_text,
+        "raw_generated_text_with_special": result.raw_generated_text_with_special,
     }
 
 
@@ -104,4 +144,10 @@ def run_configured_inference(case_id: str, notes: str) -> dict:
         "summary": result.summary,
         "findings": result.findings,
         "confidence": result.confidence,
+        "used_fallback": result.used_fallback,
+        "run_mode": result.run_mode,
+        "model_source": result.model_source,
+        "generated_token_count": result.generated_token_count,
+        "raw_generated_text": result.raw_generated_text,
+        "raw_generated_text_with_special": result.raw_generated_text_with_special,
     }

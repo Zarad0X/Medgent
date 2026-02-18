@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     medgemma_base_url: str = "http://127.0.0.1:9000"
     medgemma_timeout_seconds: float = 30.0
     worker_poll_seconds: float = 2.0
+    qc_block_fails_job: bool = False
 
 
 @lru_cache

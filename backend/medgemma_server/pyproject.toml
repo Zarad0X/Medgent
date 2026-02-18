@@ -10,5 +10,6 @@ dependencies = [
   "torch>=2.3.0",
   "accelerate>=0.34.0",
   "bitsandbytes>=0.43.0",
+  "pillow>=10.0.0",
   "pydantic-settings>=2.6.0",
 ]

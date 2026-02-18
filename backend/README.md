@@ -39,6 +39,7 @@ uv run pytest
 - `MEDGEMMA_BASE_URL` (default: `http://127.0.0.1:9000`)
 - `MEDGEMMA_TIMEOUT_SECONDS` (default: `30`)
 - `WORKER_POLL_SECONDS` (default: `2`)
+- `QC_BLOCK_FAILS_JOB` (default: `false`, useful for e2e debug)
 
 ## Auth
 
@@ -56,6 +57,7 @@ All non-health APIs require header:
 - `POST /api/v1/workflow/submit`: create case + input notes + queued job.
 - `GET /api/v1/workflow/jobs/{job_id}/result`: get job status and final output payload if available.
 - `GET /api/v1/inference/ping`: check if configured inference provider is reachable.
+  - `detail` now includes run metadata when provider is ready (e.g. `run_mode`, `model_source`).
 
 ## Startup Order (Real Model)
 

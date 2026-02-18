@@ -11,6 +11,7 @@ from app.models import JobState
 
 
 def process_next_job() -> dict | None:
+    settings = get_settings()
     with SessionLocal() as db:
         job = pull_next_queued_job(db)
         if not job:
@@ -36,8 +37,15 @@ def process_next_job() -> dict | None:
             "qc_status": qc_status,
             "qc_issues": issues,
         }
-        save_agent_output(db, case_id=job.case_id, payload=output)
 
+        if qc_status == "blocked" and not settings.qc_block_fails_job:
+            output["qc_status"] = "review_required"
+            output["qc_issues"] = [*issues, "qc_block_downgraded_for_debug"]
+            save_agent_output(db, case_id=job.case_id, payload=output)
+            advance_job_state(db, job_id=job.job_id, target_state=JobState.succeeded, error_code=None)
+            return {"job_id": job.job_id, "state": "succeeded", "qc_status": "review_required"}
+
+        save_agent_output(db, case_id=job.case_id, payload=output)
         if qc_status == "blocked":
             advance_job_state(db, job_id=job.job_id, target_state=JobState.failed, error_code="qc_blocked")
             return {"job_id": job.job_id, "state": "failed", "reason": "qc_blocked"}

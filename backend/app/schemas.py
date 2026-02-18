@@ -101,6 +101,12 @@ class MockInferenceResponse(BaseModel):
     summary: str
     findings: list[str]
     confidence: float
+    used_fallback: bool = False
+    run_mode: str | None = None
+    model_source: str | None = None
+    generated_token_count: int = 0
+    raw_generated_text: str | None = None
+    raw_generated_text_with_special: str | None = None
 
 
 class WorkflowSubmitRequest(BaseModel):

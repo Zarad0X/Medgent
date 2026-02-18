@@ -74,6 +74,28 @@ PY
   )"
   if [[ "$STATE" == "succeeded" || "$STATE" == "failed" ]]; then
     echo "$RESP"
+    SUMMARY="$(
+      RESP="$RESP" python - <<'PY'
+import json
+import os
+
+resp = os.environ["RESP"]
+try:
+    data = json.loads(resp)
+    inf = data.get("output", {}).get("inference", {})
+    run_mode = inf.get("run_mode")
+    used_fallback = inf.get("used_fallback")
+    model_source = inf.get("model_source")
+    generated_token_count = inf.get("generated_token_count")
+    print(
+        f"run_mode={run_mode} used_fallback={used_fallback} "
+        f"generated_token_count={generated_token_count} model_source={model_source}"
+    )
+except Exception:
+    print("run_mode=unknown used_fallback=unknown generated_token_count=unknown model_source=unknown")
+PY
+    )"
+    echo "inference_summary: ${SUMMARY}"
     break
   fi
   sleep 2
