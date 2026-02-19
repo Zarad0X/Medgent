@@ -7,29 +7,53 @@ from sqlalchemy.orm import Session
 
 from app.models import Artifact, Case, Job, JobStage
 from app.services.orchestrator import create_job_with_idempotency
-from app.services.storage import save_json_file, save_text_file
+from app.services.storage import save_json_file, save_local_file, save_text_file
 
 
-def submit_workflow(db: Session, *, patient_pseudo_id: str, notes: str, idempotency_key: str | None) -> tuple[Case, Job]:
+def submit_workflow(
+    db: Session,
+    *,
+    patient_pseudo_id: str,
+    notes: str | None,
+    images: list[str] | None,
+    idempotency_key: str | None,
+) -> tuple[Case, Job]:
     case = Case(patient_pseudo_id=patient_pseudo_id)
     db.add(case)
     db.commit()
     db.refresh(case)
 
-    notes_path = save_text_file(
-        case.case_id,
-        prefix="input",
-        file_name="notes.txt",
-        content=notes,
-    )
-    artifact = Artifact(
-        case_id=case.case_id,
-        kind="input_notes",
-        file_name="notes.txt",
-        file_path=notes_path,
-    )
-    db.add(artifact)
-    db.commit()
+    normalized_notes = (notes or "").strip()
+    if normalized_notes:
+        notes_path = save_text_file(
+            case.case_id,
+            prefix="input",
+            file_name="notes.txt",
+            content=normalized_notes,
+        )
+        artifact = Artifact(
+            case_id=case.case_id,
+            kind="input_notes",
+            file_name="notes.txt",
+            file_path=notes_path,
+        )
+        db.add(artifact)
+        db.commit()
+
+    for image_path in images or []:
+        original_name, stored_path = save_local_file(
+            case.case_id,
+            prefix="input",
+            source_path=image_path,
+        )
+        artifact = Artifact(
+            case_id=case.case_id,
+            kind="input_image",
+            file_name=original_name,
+            file_path=stored_path,
+        )
+        db.add(artifact)
+        db.commit()
 
     idem = idempotency_key or f"workflow-{uuid.uuid4()}"
     job, _ = create_job_with_idempotency(
@@ -54,6 +78,20 @@ def get_case_input_notes(db: Session, *, case_id: str) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def get_case_input_images(db: Session, *, case_id: str) -> list[str]:
+    artifacts = db.scalars(
+        select(Artifact)
+        .where(Artifact.case_id == case_id, Artifact.kind == "input_image")
+        .order_by(Artifact.created_at.asc())
+    ).all()
+    image_paths: list[str] = []
+    for artifact in artifacts:
+        path = Path(artifact.file_path)
+        if path.exists():
+            image_paths.append(str(path))
+    return image_paths
 
 
 def save_agent_output(db: Session, *, case_id: str, payload: dict) -> Artifact:

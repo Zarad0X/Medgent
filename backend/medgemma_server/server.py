@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+import json
 import logging
 from pathlib import Path
 from typing import Literal
 
 import torch
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from PIL import Image
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from transformers import AutoModelForImageTextToText, AutoProcessor, BitsAndBytesConfig
 
@@ -61,7 +63,17 @@ logger = logging.getLogger("medgemma_server")
 
 class InferRequest(BaseModel):
     case_id: str = Field(min_length=1, max_length=128)
-    notes: str = Field(min_length=1, max_length=8000)
+    notes: str | None = Field(default=None, max_length=8000)
+    images: list[str] = Field(default_factory=list, max_length=8)
+    rag_context: str | None = Field(default=None, max_length=8000)
+
+    @model_validator(mode="after")
+    def validate_modalities(self) -> "InferRequest":
+        has_notes = bool((self.notes or "").strip())
+        has_images = len(self.images) > 0
+        if not has_notes and not has_images:
+            raise ValueError("either notes or images must be provided")
+        return self
 
 
 class InferResponse(BaseModel):
@@ -75,6 +87,20 @@ class InferResponse(BaseModel):
     generated_token_count: int
     raw_generated_text: str | None = None
     raw_generated_text_with_special: str | None = None
+
+
+class StructuredModelOutput(BaseModel):
+    summary: str = Field(min_length=1, max_length=2000)
+    findings: list[str] = Field(min_length=1, max_length=8)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("findings")
+    @classmethod
+    def validate_findings(cls, values: list[str]) -> list[str]:
+        cleaned = [str(v).strip() for v in values if str(v).strip()]
+        if not cleaned:
+            raise ValueError("findings_empty")
+        return cleaned
 
 
 def _looks_like_local_model_dir(path: Path) -> bool:
@@ -173,28 +199,109 @@ def load_runtime() -> ModelRuntime:
     )
 
 
-def infer_text(notes: str) -> tuple[str, str, int]:
+def load_input_images(image_paths: list[str]) -> list[Image.Image]:
+    images: list[Image.Image] = []
+    for image_path in image_paths:
+        path = Path(image_path)
+        if not path.exists():
+            raise ValueError(f"image_not_found:{image_path}")
+        with Image.open(path) as img:
+            images.append(img.convert("RGB"))
+    return images
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    s = text.strip()
+    if not s:
+        return None
+
+    if s.startswith("```"):
+        lines = s.splitlines()
+        if len(lines) >= 3 and lines[-1].strip().startswith("```"):
+            fenced = "\n".join(lines[1:-1]).strip()
+            if fenced:
+                s = fenced
+
+    start = s.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(s)):
+        ch = s[idx]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : idx + 1]
+    return None
+
+
+def parse_structured_output(text: str) -> StructuredModelOutput:
+    candidates: list[str] = []
+    stripped = text.strip()
+    if stripped:
+        candidates.append(stripped)
+    extracted = _extract_first_json_object(text)
+    if extracted and extracted not in candidates:
+        candidates.append(extracted)
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+            return StructuredModelOutput.model_validate(data)
+        except Exception:
+            continue
+    raise ValueError("structured_json_parse_failed")
+
+
+def infer_text(notes: str | None, image_paths: list[str], rag_context: str | None) -> tuple[str, str, int]:
     if runtime is None:
         raise RuntimeError("runtime_not_initialized")
 
+    normalized_notes = (notes or "").strip()
     user_prompt = (
-        "你是放射科辅助分析助手。请基于以下随访记录，用中文输出："
-        "1)关键发现 2)病灶变化 3)建议。\n"
-        f"记录：{notes}"
+        "你是放射科辅助分析助手。请基于输入内容输出严格 JSON，且只能输出 JSON 对象本身，不要 Markdown。"
+        '\nJSON Schema: {"summary": string, "findings": string[], "confidence": number(0-1)}'
+        '\n示例: {"summary":"右上肺结节较前稳定。","findings":["关键发现:右上肺结节","病灶变化:较前无明显变化","建议:继续随访"],"confidence":0.78}'
     )
-    messages = [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}]
+    if normalized_notes:
+        user_prompt = f"{user_prompt}\n随访记录：{normalized_notes}"
+    else:
+        user_prompt = f"{user_prompt}\n请基于提供的影像进行判断。"
+    if rag_context and rag_context.strip():
+        user_prompt = f"{user_prompt}\n参考以下临床指南与知识库（优先采纳高相关内容）：\n{rag_context.strip()}"
+
+    content: list[dict[str, str]] = [{"type": "text", "text": user_prompt}]
+    for _ in image_paths:
+        content.append({"type": "image"})
+    messages = [{"role": "user", "content": content}]
+
+    images = load_input_images(image_paths) if image_paths else None
     if settings.use_chat_template and hasattr(runtime.processor, "apply_chat_template"):
-        templated = runtime.processor.apply_chat_template(
+        prompt = runtime.processor.apply_chat_template(
             messages,
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="pt",
         )
-        model_inputs = templated.to(runtime.input_device)
+        model_inputs = runtime.processor(text=prompt, images=images, return_tensors="pt").to(runtime.input_device)
         input_tokens = int(model_inputs["input_ids"].shape[-1])
     else:
-        model_inputs = runtime.processor(text=user_prompt, return_tensors="pt").to(runtime.input_device)
+        model_inputs = runtime.processor(text=user_prompt, images=images, return_tensors="pt").to(runtime.input_device)
         input_tokens = int(model_inputs["input_ids"].shape[-1])
 
     generate_kwargs = {
@@ -230,13 +337,6 @@ def infer_text(notes: str) -> tuple[str, str, int]:
         effective_count += 1
 
     return text, raw_with_special, int(effective_count)
-
-
-def build_fallback_text(notes: str) -> str:
-    short = " ".join(notes.strip().split())
-    if len(short) > 120:
-        short = f"{short[:117]}..."
-    return f"病灶变化评估：根据输入信息，病灶变化需结合既往影像综合判断。原始描述：{short}"
 
 
 @asynccontextmanager
@@ -275,7 +375,13 @@ def health() -> dict:
 @app.post("/infer", response_model=InferResponse)
 def infer(req: InferRequest) -> InferResponse:
     try:
-        text, raw_with_special, generated_token_count = infer_text(req.notes)
+        text, raw_with_special, generated_token_count = infer_text(req.notes, req.images, req.rag_context)
+        parsed = parse_structured_output(text)
+    except ValueError as exc:
+        detail = str(exc)
+        if detail in {"structured_json_parse_failed"}:
+            raise HTTPException(status_code=502, detail=detail)
+        raise HTTPException(status_code=400, detail=detail)
     except Exception as exc:
         logger.exception("infer failed")
         raise HTTPException(status_code=500, detail=f"inference_failed: {exc}")
@@ -283,21 +389,12 @@ def infer(req: InferRequest) -> InferResponse:
     used_fallback = False
     raw_generated_text = text if text else None
     raw_generated_text_with_special = raw_with_special if raw_with_special else None
-    if not text or generated_token_count == 0:
-        text = build_fallback_text(req.notes)
-        used_fallback = True
-
-    summary = text[:300]
-    findings = [line.strip("- ").strip() for line in text.splitlines() if line.strip()]
-    if not findings:
-        findings = [build_fallback_text(req.notes)]
-        used_fallback = True
 
     return InferResponse(
         case_id=req.case_id,
-        summary=summary,
-        findings=findings[:5],
-        confidence=0.7,
+        summary=parsed.summary,
+        findings=parsed.findings[:5],
+        confidence=parsed.confidence,
         used_fallback=used_fallback,
         run_mode=runtime.run_mode if runtime else "unknown",
         model_source=runtime.model_source if runtime else settings.model_id,

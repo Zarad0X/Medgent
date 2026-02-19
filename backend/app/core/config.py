@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     medgemma_timeout_seconds: float = 30.0
     worker_poll_seconds: float = 2.0
     qc_block_fails_job: bool = False
+    cors_allow_origins: str = "*"
 
 
 @lru_cache

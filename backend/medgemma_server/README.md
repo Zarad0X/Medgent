@@ -49,7 +49,7 @@ For non-quantized test:
 Important for MedGemma 4B:
 - Prefer `DTYPE=bfloat16` on RTX 40xx. `float16` can produce NaN logits and pad-only outputs.
 
-If you keep seeing `used_fallback=true`, tune in this order:
+If you keep seeing empty `summary`/`findings` (or `generated_token_count=0`), tune in this order:
 1. Keep `USE_CHAT_TEMPLATE=true`
 2. Raise `MIN_NEW_TOKENS` to `48`
 3. Set `TEMPERATURE=0.2` and `TOP_P=0.9`
@@ -75,9 +75,14 @@ Request:
 ```json
 {
   "case_id": "case-123",
-  "notes": "右肺病灶较前变化不大，建议继续随访。"
+  "notes": "右肺病灶较前变化不大，建议继续随访。",
+  "images": ["/abs/path/to/image1.png"],
+  "rag_context": "[1] title=...\\n..."
 }
 ```
+
+`notes` and `images` are optional individually, but at least one must be non-empty.
+`rag_context` is optional and will be injected into prompt when provided.
 
 Response:
 
@@ -86,15 +91,20 @@ Response:
   "case_id": "case-123",
   "summary": "......",
   "findings": ["......"],
-  "confidence": 0.7,
+  "confidence": 0.78,
   "used_fallback": false,
-  "run_mode": "native_float16",
+  "run_mode": "native_bfloat16",
   "model_source": "/path/to/local/model",
   "generated_token_count": 86,
   "raw_generated_text": "......",
   "raw_generated_text_with_special": "<bos>......<eos>"
 }
 ```
+
+Model output is validated as strict JSON schema:
+- `summary: string`
+- `findings: string[]` (non-empty)
+- `confidence: number` in `[0,1]`
 
 ## 5. Connect with backend
 

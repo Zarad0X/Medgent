@@ -21,7 +21,14 @@ class InferenceResult:
 
 
 class InferenceProvider(Protocol):
-    def run(self, *, case_id: str, notes: str) -> InferenceResult:
+    def run(
+        self,
+        *,
+        case_id: str,
+        notes: str | None,
+        images: list[str] | None = None,
+        rag_context: str | None = None,
+    ) -> InferenceResult:
         ...
 
 
@@ -30,13 +37,25 @@ class InferenceProviderError(Exception):
 
 
 class MockInferenceProvider:
-    def run(self, *, case_id: str, notes: str) -> InferenceResult:
-        text = notes.strip()
+    def run(
+        self,
+        *,
+        case_id: str,
+        notes: str | None,
+        images: list[str] | None = None,
+        rag_context: str | None = None,
+    ) -> InferenceResult:
+        text = (notes or "").strip()
+        image_count = len(images or [])
+        if not text:
+            text = f"收到 {image_count} 张影像。"
         short = text if len(text) <= 80 else f"{text[:77]}..."
         findings = [
             "病灶较前变化稳定，建议继续随访。",
             "未见明显新发高危征象。",
         ]
+        if image_count:
+            findings.append(f"已接收影像数量: {image_count}")
         return InferenceResult(
             case_id=case_id,
             summary=f"Mock推理结论：{short}",
@@ -56,8 +75,22 @@ class MedGemmaInferenceProvider:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
-    def run(self, *, case_id: str, notes: str) -> InferenceResult:
-        payload = json.dumps({"case_id": case_id, "notes": notes}).encode("utf-8")
+    def run(
+        self,
+        *,
+        case_id: str,
+        notes: str | None,
+        images: list[str] | None = None,
+        rag_context: str | None = None,
+    ) -> InferenceResult:
+        payload = json.dumps(
+            {
+                "case_id": case_id,
+                "notes": notes,
+                "images": images or [],
+                "rag_context": rag_context,
+            }
+        ).encode("utf-8")
         req = request.Request(
             url=f"{self.base_url}/infer",
             data=payload,
@@ -119,9 +152,14 @@ def get_configured_provider() -> InferenceProvider:
     return MockInferenceProvider()
 
 
-def run_mock_inference(case_id: str, notes: str) -> dict:
+def run_mock_inference(
+    case_id: str,
+    notes: str | None,
+    images: list[str] | None = None,
+    rag_context: str | None = None,
+) -> dict:
     provider = MockInferenceProvider()
-    result = provider.run(case_id=case_id, notes=notes)
+    result = provider.run(case_id=case_id, notes=notes, images=images, rag_context=rag_context)
     return {
         "case_id": result.case_id,
         "summary": result.summary,
@@ -136,9 +174,14 @@ def run_mock_inference(case_id: str, notes: str) -> dict:
     }
 
 
-def run_configured_inference(case_id: str, notes: str) -> dict:
+def run_configured_inference(
+    case_id: str,
+    notes: str | None,
+    images: list[str] | None = None,
+    rag_context: str | None = None,
+) -> dict:
     provider = get_configured_provider()
-    result = provider.run(case_id=case_id, notes=notes)
+    result = provider.run(case_id=case_id, notes=notes, images=images, rag_context=rag_context)
     return {
         "case_id": result.case_id,
         "summary": result.summary,

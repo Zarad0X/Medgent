@@ -96,12 +96,16 @@ def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -> Job:
 
 @router.post("/workflow/submit", response_model=WorkflowSubmitResponse, status_code=status.HTTP_201_CREATED)
 def workflow_submit(payload: WorkflowSubmitRequest, db: Session = Depends(get_db)) -> WorkflowSubmitResponse:
-    case, job = submit_workflow(
-        db,
-        patient_pseudo_id=payload.patient_pseudo_id,
-        notes=payload.notes,
-        idempotency_key=payload.idempotency_key,
-    )
+    try:
+        case, job = submit_workflow(
+            db,
+            patient_pseudo_id=payload.patient_pseudo_id,
+            notes=payload.notes,
+            images=payload.images,
+            idempotency_key=payload.idempotency_key,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return WorkflowSubmitResponse(case=case, job=job)
 
 
@@ -211,13 +215,15 @@ def qc_evaluate(payload: QCEvaluateRequest) -> QCEvaluateResponse:
 
 @router.post("/inference/mock", response_model=MockInferenceResponse)
 def mock_inference(payload: MockInferenceRequest) -> MockInferenceResponse:
-    return MockInferenceResponse(**run_mock_inference(payload.case_id, payload.notes))
+    return MockInferenceResponse(**run_mock_inference(payload.case_id, payload.notes, payload.images))
 
 
 @router.post("/inference/run", response_model=MockInferenceResponse)
 def run_inference(payload: MockInferenceRequest) -> MockInferenceResponse:
     try:
-        return MockInferenceResponse(**run_configured_inference(payload.case_id, payload.notes))
+        return MockInferenceResponse(
+            **run_configured_inference(payload.case_id, payload.notes, payload.images)
+        )
     except InferenceProviderError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
@@ -237,4 +243,3 @@ def ping_inference_provider() -> InferencePingResponse:
             detail={"error": result.get("error", "unknown_error")},
         )
     return InferencePingResponse(provider="medgemma", reachable=True, detail=result.get("raw"))
-    InferencePingResponse,

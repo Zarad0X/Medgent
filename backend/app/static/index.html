@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Medgent Clinical Copilot</title>
+  <style>
+    :root {
+      --bg: #f3f7f6;
+      --surface: #ffffff;
+      --surface-soft: #eef5f3;
+      --ink: #112032;
+      --muted: #567085;
+      --line: #d6e1df;
+      --brand: #0f766e;
+      --brand-strong: #0b4f5f;
+      --accent: #c96a2b;
+      --danger: #b93838;
+      --ok: #1b8d6d;
+      --shadow: 0 14px 34px rgba(12, 38, 56, 0.10);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Avenir Next", "Noto Sans SC", "PingFang SC", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 540px at 90% -10%, rgba(15, 118, 110, 0.14), transparent 60%),
+        radial-gradient(800px 480px at -10% 10%, rgba(201, 106, 43, 0.10), transparent 65%),
+        var(--bg);
+      min-height: 100vh;
+    }
+
+    .shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 26px 16px 40px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+      animation: rise 0.45s ease-out both;
+    }
+
+    .eyebrow {
+      color: var(--brand);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(26px, 5vw, 38px);
+      line-height: 1.1;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 760px;
+      line-height: 1.5;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      animation: rise 0.45s ease-out both;
+    }
+
+    .card:nth-child(2) { animation-delay: 0.08s; }
+    .card:nth-child(3) { animation-delay: 0.16s; }
+    .card:nth-child(4) { animation-delay: 0.24s; }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 17px;
+      letter-spacing: 0.01em;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .field { margin-bottom: 10px; }
+
+    input[type="text"], textarea, input[type="file"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .14s ease, filter .14s ease;
+    }
+
+    button:hover { transform: translateY(-1px); filter: brightness(1.03); }
+
+    .btn-primary {
+      color: #fff;
+      background: linear-gradient(120deg, var(--brand), var(--brand-strong));
+    }
+
+    .btn-soft {
+      color: var(--brand-strong);
+      background: var(--surface-soft);
+    }
+
+    .status-pill {
+      margin-top: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      background: #fff;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #9ca8b4;
+    }
+
+    .status-pill.ok { color: var(--ok); border-color: rgba(27, 141, 109, .35); background: rgba(27, 141, 109, .08); }
+    .status-pill.ok .dot { background: var(--ok); }
+    .status-pill.err { color: var(--danger); border-color: rgba(185, 56, 56, .35); background: rgba(185, 56, 56, .08); }
+    .status-pill.err .dot { background: var(--danger); }
+
+    .result-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: linear-gradient(180deg, #fff, #fbfdfd);
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: var(--brand-strong);
+    }
+
+    .kv {
+      font-size: 13px;
+      line-height: 1.45;
+      color: #23384c;
+      margin: 4px 0;
+      word-break: break-word;
+    }
+
+    .panel ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      line-height: 1.45;
+      color: #23384c;
+      font-size: 13px;
+    }
+
+    details { margin-top: 8px; }
+    summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    pre {
+      margin: 8px 0 0;
+      border-radius: 10px;
+      padding: 10px;
+      background: #0f1720;
+      color: #e8eff6;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow: auto;
+      max-height: 280px;
+    }
+
+    .log-wrap {
+      margin-top: 8px;
+    }
+
+    .raw-log {
+      min-height: 220px;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 960px) {
+      .grid { grid-template-columns: 1fr; }
+      .result-layout { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .shell { padding: 18px 12px 28px; }
+      .card { padding: 12px; border-radius: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Medgent Diagnostic Agent</div>
+      <h1>临床影像智能推理工作台</h1>
+      <p>支持文本、影像、图文混合输入。提交后自动执行 Case 创建、Artifact 上传、Job 调度、RAG 检索、模型推理与 QC，并在同一页面展示可解释输出。</p>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>任务配置</h2>
+        <div class="form-grid">
+          <div class="field">
+            <label for="apiBase">API Base</label>
+            <input id="apiBase" type="text" value="/api/v1" />
+          </div>
+          <div class="field">
+            <label for="apiKey">x-api-key</label>
+            <input id="apiKey" type="text" placeholder="dev-local-key" />
+          </div>
+          <div class="field">
+            <label for="patientId">patient_pseudo_id</label>
+            <input id="patientId" type="text" value="p-ui-001" />
+          </div>
+          <div class="field">
+            <label for="idempotency">idempotency_key</label>
+            <input id="idempotency" type="text" placeholder="可留空自动生成" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="notes">Notes (可选)</label>
+          <textarea id="notes" placeholder="输入病历摘要/随访记录。可为空，但 Notes 与 Images 不能同时为空。"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="images">Images (可选，多张)</label>
+          <input id="images" type="file" accept="image/*" multiple />
+          <div class="hint">支持 text-only / image-only / multimodal 三种模式</div>
+        </div>
+
+        <div class="actions">
+          <button class="btn-primary" id="runBtn">提交并轮询</button>
+          <button class="btn-soft" id="healthBtn">检查推理服务</button>
+          <button class="btn-soft" id="clearBtn">清空</button>
+        </div>
+
+        <div id="status" class="status-pill"><span class="dot"></span><span>待命</span></div>
+      </article>
+
+      <article class="card">
+        <h2>结构化结果</h2>
+        <div id="resultView" class="result-layout"></div>
+      </article>
+    </section>
+
+    <section class="card log-wrap">
+      <h2>执行日志</h2>
+      <pre id="output" class="raw-log"></pre>
+    </section>
+  </div>
+
+  <script>
+    const outputEl = document.getElementById('output');
+    const statusEl = document.getElementById('status');
+    const resultViewEl = document.getElementById('resultView');
+
+    function setStatus(text, ok = true) {
+      const statusClass = ok ? 'ok' : 'err';
+      statusEl.className = `status-pill ${statusClass}`;
+      statusEl.innerHTML = `<span class="dot"></span><span>${escapeHtml(text)}</span>`;
+    }
+
+    function appendLog(title, data) {
+      const block = [
+        `\n=== ${title} ===`,
+        typeof data === 'string' ? data : JSON.stringify(data, null, 2),
+      ].join('\n');
+      outputEl.textContent += block + '\n';
+      outputEl.scrollTop = outputEl.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
+    function renderList(items) {
+      if (!items || items.length === 0) return '<div class="kv">无</div>';
+      return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+    }
+
+    function getHeaders() {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      if (!apiKey) throw new Error('请先填写 x-api-key');
+      return { 'x-api-key': apiKey };
+    }
+
+    function getBase() {
+      return document.getElementById('apiBase').value.trim().replace(/\/$/, '') || '/api/v1';
+    }
+
+    async function requestJson(url, options = {}) {
+      const res = await fetch(url, options);
+      const text = await res.text();
+      let json;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch (_) {
+        json = { raw: text };
+      }
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}: ${JSON.stringify(json)}`);
+      }
+      return json;
+    }
+
+    async function uploadArtifact(base, headers, caseId, kind, file) {
+      const form = new FormData();
+      form.append('file', file);
+      return requestJson(`${base}/cases/${caseId}/artifacts?kind=${encodeURIComponent(kind)}`, {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+    }
+
+    async function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function renderResult(result) {
+      const output = result?.output || {};
+      const inference = output?.inference || {};
+      const qcIssues = output?.qc_issues || [];
+      const rag = output?.rag || {};
+      const hits = rag?.hits || [];
+      const ob = output?.observability || {};
+      const durations = ob?.durations_ms || {};
+      const runtime = ob?.inference_runtime || {};
+      const findings = inference?.findings || [];
+
+      const hitList = hits.length
+        ? `<ul>${hits.map((h) => `<li>${escapeHtml(h.title)} | score=${escapeHtml(h.score)} | ${escapeHtml(h.source)}</li>`).join('')}</ul>`
+        : '<div class="kv">无命中</div>';
+
+      resultViewEl.innerHTML = `
+        <section class="panel">
+          <h3>Inference</h3>
+          <div class="kv"><strong>summary:</strong> ${escapeHtml(inference.summary || '')}</div>
+          <div class="kv"><strong>confidence:</strong> ${escapeHtml(inference.confidence ?? 'n/a')}</div>
+          <div class="kv"><strong>job_state:</strong> ${escapeHtml(result?.job?.state || 'unknown')}</div>
+          ${renderList(findings)}
+        </section>
+
+        <section class="panel">
+          <h3>QC</h3>
+          <div class="kv"><strong>qc_status:</strong> ${escapeHtml(output.qc_status || 'n/a')}</div>
+          ${renderList(qcIssues)}
+        </section>
+
+        <section class="panel">
+          <h3>RAG</h3>
+          <div class="kv"><strong>query:</strong> ${escapeHtml(rag.query || '')}</div>
+          <div class="kv"><strong>hits:</strong> ${hits.length}</div>
+          ${hitList}
+          <details>
+            <summary>查看注入 Prompt 的 context</summary>
+            <pre>${escapeHtml(rag.context_used || '')}</pre>
+          </details>
+        </section>
+
+        <section class="panel">
+          <h3>Observability</h3>
+          <div class="kv"><strong>durations(ms):</strong> rag=${escapeHtml(durations.rag ?? 0)}, inference=${escapeHtml(durations.inference ?? 0)}, qc=${escapeHtml(durations.qc ?? 0)}, total=${escapeHtml(durations.total ?? 0)}</div>
+          <div class="kv"><strong>run_mode:</strong> ${escapeHtml(runtime.run_mode || '')}</div>
+          <div class="kv"><strong>model_source:</strong> ${escapeHtml(runtime.model_source || '')}</div>
+          <div class="kv"><strong>generated_token_count:</strong> ${escapeHtml(runtime.generated_token_count ?? 0)}</div>
+          <div class="kv"><strong>used_fallback:</strong> ${escapeHtml(runtime.used_fallback ?? false)}</div>
+        </section>
+      `;
+    }
+
+    async function runWorkflow() {
+      setStatus('执行中...', true);
+      const base = getBase();
+      const headers = getHeaders();
+      const patientId = document.getElementById('patientId').value.trim() || 'p-ui-001';
+      const idemInput = document.getElementById('idempotency').value.trim();
+      const notes = document.getElementById('notes').value.trim();
+      const imageFiles = Array.from(document.getElementById('images').files || []);
+
+      if (!notes && imageFiles.length === 0) {
+        throw new Error('Notes 和 Images 不能同时为空');
+      }
+
+      const caseResp = await requestJson(`${base}/cases`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patient_pseudo_id: patientId }),
+      });
+      appendLog('case_created', caseResp);
+
+      const caseId = caseResp.case_id;
+      if (notes) {
+        const notesFile = new File([notes], 'notes.txt', { type: 'text/plain;charset=utf-8' });
+        const noteArtifact = await uploadArtifact(base, headers, caseId, 'input_notes', notesFile);
+        appendLog('notes_uploaded', noteArtifact);
+      }
+
+      for (const imageFile of imageFiles) {
+        const imageArtifact = await uploadArtifact(base, headers, caseId, 'input_image', imageFile);
+        appendLog(`image_uploaded:${imageFile.name}`, imageArtifact);
+      }
+
+      const idem = idemInput || `ui-${crypto.randomUUID()}`;
+      const jobResp = await requestJson(`${base}/jobs`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          case_id: caseId,
+          stage: 'inference',
+          idempotency_key: idem,
+        }),
+      });
+      appendLog('job_created', jobResp);
+
+      const jobId = jobResp.job_id;
+      let last = null;
+      for (let i = 0; i < 60; i += 1) {
+        await sleep(1000);
+        const result = await requestJson(`${base}/workflow/jobs/${jobId}/result`, {
+          method: 'GET',
+          headers,
+        });
+        last = result;
+        appendLog(`poll_${i + 1}`, {
+          job_state: result?.job?.state,
+          has_output: Boolean(result?.output),
+        });
+
+        const state = result?.job?.state;
+        if (state === 'succeeded' || state === 'failed') {
+          appendLog('final_result', result);
+          renderResult(result);
+          setStatus(`完成: ${state}`, state === 'succeeded');
+          return;
+        }
+      }
+
+      appendLog('timeout_last_result', last || {});
+      throw new Error('轮询超时: 请确认 worker 正在运行');
+    }
+
+    async function pingInference() {
+      const base = getBase();
+      const headers = getHeaders();
+      setStatus('检查中...', true);
+      const result = await requestJson(`${base}/inference/ping`, { headers });
+      appendLog('inference_ping', result);
+      setStatus(`推理服务: ${result.reachable ? 'reachable' : 'unreachable'}`, result.reachable);
+    }
+
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      try {
+        await runWorkflow();
+      } catch (err) {
+        setStatus(String(err.message || err), false);
+        appendLog('error', String(err.message || err));
+      }
+    });
+
+    document.getElementById('healthBtn').addEventListener('click', async () => {
+      try {
+        await pingInference();
+      } catch (err) {
+        setStatus(String(err.message || err), false);
+        appendLog('error', String(err.message || err));
+      }
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      outputEl.textContent = '';
+      resultViewEl.innerHTML = '';
+      statusEl.className = 'status-pill';
+      statusEl.innerHTML = '<span class="dot"></span><span>待命</span>';
+    });
+  </script>
+</body>
+</html>

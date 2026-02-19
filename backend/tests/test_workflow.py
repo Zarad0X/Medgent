@@ -93,6 +93,23 @@ def test_simple_rag_qc_and_mock_inference():
         assert configured.json()["case_id"] == "c2"
 
 
+def test_inference_modalities_validation():
+    with TestClient(app) as client:
+        image_only = client.post(
+            "/api/v1/inference/mock",
+            json={"case_id": "i1", "images": ["/tmp/fake-image.png"]},
+            headers=AUTH_HEADERS,
+        )
+        assert image_only.status_code == 200
+
+        invalid = client.post(
+            "/api/v1/inference/mock",
+            json={"case_id": "i2", "notes": "", "images": []},
+            headers=AUTH_HEADERS,
+        )
+        assert invalid.status_code == 422
+
+
 def test_workflow_submit_and_worker_end_to_end():
     with TestClient(app) as client:
         submit = client.post(
@@ -120,3 +137,45 @@ def test_workflow_submit_and_worker_end_to_end():
         after = client.get(f"/api/v1/workflow/jobs/{job_id}/result", headers=AUTH_HEADERS)
         assert after.status_code == 200
         assert after.json()["output"] is not None
+        output = after.json()["output"]
+        assert "rag" in output
+        assert "observability" in output
+        assert "durations_ms" in output["observability"]
+
+
+def test_workflow_submit_image_only(tmp_path):
+    image_path = tmp_path / "image1.png"
+    image_path.write_bytes(b"fake-image-bytes")
+
+    with TestClient(app) as client:
+        submit = client.post(
+            "/api/v1/workflow/submit",
+            json={
+                "patient_pseudo_id": f"p-{uuid4()}",
+                "images": [str(image_path)],
+                "idempotency_key": f"wf-{uuid4()}",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert submit.status_code == 201
+        job_id = submit.json()["job"]["job_id"]
+
+        worker_result = process_next_job()
+        assert worker_result is not None
+        assert worker_result["job_id"] == job_id
+        assert worker_result["state"] in {"succeeded", "failed"}
+
+
+def test_workflow_submit_requires_modalities():
+    with TestClient(app) as client:
+        submit = client.post(
+            "/api/v1/workflow/submit",
+            json={
+                "patient_pseudo_id": f"p-{uuid4()}",
+                "notes": "",
+                "images": [],
+                "idempotency_key": f"wf-{uuid4()}",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert submit.status_code == 422

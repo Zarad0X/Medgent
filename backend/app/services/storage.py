@@ -1,6 +1,7 @@
-from pathlib import Path
-import uuid
 import json
+import shutil
+import uuid
+from pathlib import Path
 
 from fastapi import UploadFile
 
@@ -27,6 +28,21 @@ def save_text_file(case_id: str, *, prefix: str, file_name: str, content: str) -
     target = base_dir / f"{prefix}_{uuid.uuid4()}_{file_name}"
     target.write_text(content, encoding="utf-8")
     return str(target)
+
+
+def save_local_file(case_id: str, *, prefix: str, source_path: str) -> tuple[str, str]:
+    source = Path(source_path).expanduser()
+    if not source.exists() or not source.is_file():
+        raise FileNotFoundError(f"source_file_not_found:{source_path}")
+
+    settings = get_settings()
+    base_dir = Path(settings.artifact_dir) / case_id
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    original_name = source.name
+    target = base_dir / f"{prefix}_{uuid.uuid4()}_{original_name}"
+    shutil.copy2(source, target)
+    return original_name, str(target)
 
 
 def save_json_file(case_id: str, *, prefix: str, file_name: str, payload: dict) -> str:

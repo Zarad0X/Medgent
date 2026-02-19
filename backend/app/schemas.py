@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models import CaseStatus, JobStage, JobState
 
@@ -93,7 +93,16 @@ class QCEvaluateResponse(BaseModel):
 
 class MockInferenceRequest(BaseModel):
     case_id: str
-    notes: str = Field(min_length=1, max_length=4000)
+    notes: str | None = Field(default=None, max_length=4000)
+    images: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_modalities(self) -> "MockInferenceRequest":
+        has_notes = bool((self.notes or "").strip())
+        has_images = len(self.images) > 0
+        if not has_notes and not has_images:
+            raise ValueError("either notes or images must be provided")
+        return self
 
 
 class MockInferenceResponse(BaseModel):
@@ -111,8 +120,17 @@ class MockInferenceResponse(BaseModel):
 
 class WorkflowSubmitRequest(BaseModel):
     patient_pseudo_id: str = Field(min_length=1, max_length=128)
-    notes: str = Field(min_length=1, max_length=4000)
+    notes: str | None = Field(default=None, max_length=4000)
+    images: list[str] = Field(default_factory=list, max_length=8)
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_modalities(self) -> "WorkflowSubmitRequest":
+        has_notes = bool((self.notes or "").strip())
+        has_images = len(self.images) > 0
+        if not has_notes and not has_images:
+            raise ValueError("either notes or images must be provided")
+        return self
 
 
 class WorkflowSubmitResponse(BaseModel):
