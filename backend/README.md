@@ -8,6 +8,13 @@ FastAPI skeleton for the MedGemma Edge Agent architecture.
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
+If you upgraded from an older local schema and see `idempotency_key_conflict_across_case`,
+recreate local DB once (dev only):
+
+```bash
+rm -f medgent.db
+```
+
 ## Frontend (Migrated)
 
 New standalone frontend lives in `../frontend` (Vite + React + TypeScript).

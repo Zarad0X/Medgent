@@ -36,6 +36,7 @@ from app.services.medgemma import ping_medgemma_health
 from app.services.orchestrator import (
     InvalidTransitionError,
     NotFoundError,
+    OrchestratorError,
     advance_job_state,
     create_job_with_idempotency,
     pull_next_queued_job,
@@ -83,12 +84,15 @@ def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -> Job:
     if not case:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="case_not_found")
 
-    job, created = create_job_with_idempotency(
-        db,
-        case_id=payload.case_id,
-        stage=payload.stage,
-        idempotency_key=payload.idempotency_key,
-    )
+    try:
+        job, created = create_job_with_idempotency(
+            db,
+            case_id=payload.case_id,
+            stage=payload.stage,
+            idempotency_key=payload.idempotency_key,
+        )
+    except OrchestratorError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     if not created:
         return job
     return job
@@ -106,6 +110,8 @@ def workflow_submit(payload: WorkflowSubmitRequest, db: Session = Depends(get_db
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except OrchestratorError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return WorkflowSubmitResponse(case=case, job=job)
 
 

@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Job, JobStage, JobState
@@ -32,13 +33,33 @@ def create_job_with_idempotency(
     stage: JobStage,
     idempotency_key: str,
 ) -> tuple[Job, bool]:
-    existing = db.scalar(select(Job).where(Job.idempotency_key == idempotency_key))
+    existing = db.scalar(
+        select(Job).where(
+            Job.case_id == case_id,
+            Job.idempotency_key == idempotency_key,
+        )
+    )
     if existing:
         return existing, False
 
     job = Job(case_id=case_id, stage=stage, idempotency_key=idempotency_key)
     db.add(job)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        existing_same_case = db.scalar(
+            select(Job).where(
+                Job.case_id == case_id,
+                Job.idempotency_key == idempotency_key,
+            )
+        )
+        if existing_same_case:
+            return existing_same_case, False
+
+        # If this fires, your local DB likely still has the legacy global unique
+        # constraint on idempotency_key. Recreate or migrate the DB schema.
+        raise OrchestratorError("idempotency_key_conflict_across_case") from exc
     db.refresh(job)
     return job, True
 

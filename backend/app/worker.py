@@ -5,7 +5,7 @@ from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine
 from app.services.inference import InferenceProviderError, run_configured_inference
 from app.services.orchestrator import advance_job_state, pull_next_queued_job
-from app.services.qc import evaluate_findings
+from app.services.qc import evaluate_findings, flatten_qc_issues
 from app.services.rag import search_docs
 from app.services.workflow import get_case_input_images, get_case_input_notes, save_agent_output
 from app.models import JobState
@@ -80,6 +80,7 @@ def process_next_job() -> dict | None:
         qc_start = time.perf_counter()
         findings_text = " ".join(inference.get("findings", []))
         qc_status, issues = evaluate_findings(findings_text)
+        issues_flat = flatten_qc_issues(issues)
         qc_ms = int((time.perf_counter() - qc_start) * 1000)
         total_ms = int((time.perf_counter() - total_start) * 1000)
         output = {
@@ -88,6 +89,7 @@ def process_next_job() -> dict | None:
             "inference": inference,
             "qc_status": qc_status,
             "qc_issues": issues,
+            "qc_issues_flat": issues_flat,
             "observability": {
                 "durations_ms": {
                     "rag": rag_ms,
@@ -111,7 +113,8 @@ def process_next_job() -> dict | None:
 
         if qc_status == "blocked" and not settings.qc_block_fails_job:
             output["qc_status"] = "review_required"
-            output["qc_issues"] = [*issues, "qc_block_downgraded_for_debug"]
+            output["qc_issues"]["safety"].append("qc_block_downgraded_for_debug")
+            output["qc_issues_flat"] = flatten_qc_issues(output["qc_issues"])
             save_agent_output(db, case_id=job.case_id, payload=output)
             advance_job_state(db, job_id=job.job_id, target_state=JobState.succeeded, error_code=None)
             return {"job_id": job.job_id, "state": "succeeded", "qc_status": "review_required"}

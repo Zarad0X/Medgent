@@ -7,6 +7,18 @@ from app.worker import process_next_job
 AUTH_HEADERS = {"X-API-Key": "dev-local-key"}
 
 
+def process_until_job(job_id: str, max_steps: int = 10):
+    seen = []
+    for _ in range(max_steps):
+        result = process_next_job()
+        if result is None:
+            break
+        seen.append(result["job_id"])
+        if result["job_id"] == job_id:
+            return result
+    return None
+
+
 def test_case_and_job_idempotency_flow():
     with TestClient(app) as client:
         case_resp = client.post(
@@ -44,6 +56,46 @@ def test_case_and_job_idempotency_flow():
         )
         assert to_succeeded.status_code == 200
         assert to_succeeded.json()["state"] == "succeeded"
+
+
+def test_idempotency_scoped_within_case():
+    idem_key = f"idem-shared-{uuid4()}"
+    with TestClient(app) as client:
+        case_a = client.post(
+            "/api/v1/cases",
+            json={"patient_pseudo_id": "p-a"},
+            headers=AUTH_HEADERS,
+        )
+        case_b = client.post(
+            "/api/v1/cases",
+            json={"patient_pseudo_id": "p-b"},
+            headers=AUTH_HEADERS,
+        )
+        assert case_a.status_code == 201
+        assert case_b.status_code == 201
+
+        job_a = client.post(
+            "/api/v1/jobs",
+            json={
+                "case_id": case_a.json()["case_id"],
+                "stage": "inference",
+                "idempotency_key": idem_key,
+            },
+            headers=AUTH_HEADERS,
+        )
+        job_b = client.post(
+            "/api/v1/jobs",
+            json={
+                "case_id": case_b.json()["case_id"],
+                "stage": "inference",
+                "idempotency_key": idem_key,
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert job_a.status_code == 201
+        assert job_b.status_code == 201
+        assert job_a.json()["job_id"] != job_b.json()["job_id"]
+        assert job_a.json()["case_id"] != job_b.json()["case_id"]
 
 
 def test_simple_rag_qc_and_mock_inference():
@@ -129,7 +181,7 @@ def test_workflow_submit_and_worker_end_to_end():
         assert before.status_code == 200
         assert before.json()["output"] is None
 
-        worker_result = process_next_job()
+        worker_result = process_until_job(job_id)
         assert worker_result is not None
         assert worker_result["job_id"] == job_id
         assert worker_result["state"] in {"succeeded", "failed"}
@@ -160,7 +212,7 @@ def test_workflow_submit_image_only(tmp_path):
         assert submit.status_code == 201
         job_id = submit.json()["job"]["job_id"]
 
-        worker_result = process_next_job()
+        worker_result = process_until_job(job_id)
         assert worker_result is not None
         assert worker_result["job_id"] == job_id
         assert worker_result["state"] in {"succeeded", "failed"}

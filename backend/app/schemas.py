@@ -88,7 +88,7 @@ class QCEvaluateRequest(BaseModel):
 
 class QCEvaluateResponse(BaseModel):
     status: str
-    issues: list[str]
+    issues: dict[str, list[str]]
 
 
 class MockInferenceRequest(BaseModel):

@@ -44,7 +44,7 @@ class Case(Base):
 
 class Job(Base):
     __tablename__ = "jobs"
-    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_jobs_idempotency_key"),)
+    __table_args__ = (UniqueConstraint("case_id", "idempotency_key", name="uq_jobs_case_id_idempotency_key"),)
 
     job_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     case_id: Mapped[str] = mapped_column(String(36), ForeignKey("cases.case_id"), index=True)
