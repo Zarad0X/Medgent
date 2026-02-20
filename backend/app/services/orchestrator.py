@@ -32,6 +32,7 @@ def create_job_with_idempotency(
     case_id: str,
     stage: JobStage,
     idempotency_key: str,
+    autocommit: bool = True,
 ) -> tuple[Job, bool]:
     existing = db.scalar(
         select(Job).where(
@@ -45,7 +46,11 @@ def create_job_with_idempotency(
     job = Job(case_id=case_id, stage=stage, idempotency_key=idempotency_key)
     db.add(job)
     try:
-        db.commit()
+        if autocommit:
+            db.commit()
+            db.refresh(job)
+        else:
+            db.flush()
     except IntegrityError as exc:
         db.rollback()
         existing_same_case = db.scalar(
@@ -60,7 +65,6 @@ def create_job_with_idempotency(
         # If this fires, your local DB likely still has the legacy global unique
         # constraint on idempotency_key. Recreate or migrate the DB schema.
         raise OrchestratorError("idempotency_key_conflict_across_case") from exc
-    db.refresh(job)
     return job, True
 
 

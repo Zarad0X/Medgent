@@ -1,7 +1,10 @@
 from fastapi.testclient import TestClient
 from uuid import uuid4
+from sqlalchemy import func, select
 
+from app.db import SessionLocal
 from app.main import app
+from app.models import Case
 from app.worker import process_next_job
 
 AUTH_HEADERS = {"X-API-Key": "dev-local-key"}
@@ -231,3 +234,80 @@ def test_workflow_submit_requires_modalities():
             headers=AUTH_HEADERS,
         )
         assert submit.status_code == 422
+
+
+def test_workflow_result_is_scoped_to_job_id():
+    with TestClient(app) as client:
+        case_resp = client.post(
+            "/api/v1/cases",
+            json={"patient_pseudo_id": f"p-{uuid4()}"},
+            headers=AUTH_HEADERS,
+        )
+        assert case_resp.status_code == 201
+        case_id = case_resp.json()["case_id"]
+
+        upload = client.post(
+            f"/api/v1/cases/{case_id}/artifacts?kind=input_notes",
+            headers=AUTH_HEADERS,
+            files={"file": ("notes.txt", "右肺病灶较前变化不大，建议继续随访。", "text/plain")},
+        )
+        assert upload.status_code == 201
+
+        job1 = client.post(
+            "/api/v1/jobs",
+            json={
+                "case_id": case_id,
+                "stage": "inference",
+                "idempotency_key": f"job1-{uuid4()}",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert job1.status_code == 201
+        job1_id = job1.json()["job_id"]
+        assert process_until_job(job1_id) is not None
+
+        result1 = client.get(f"/api/v1/workflow/jobs/{job1_id}/result", headers=AUTH_HEADERS)
+        assert result1.status_code == 200
+        assert result1.json()["output"]["job_id"] == job1_id
+
+        job2 = client.post(
+            "/api/v1/jobs",
+            json={
+                "case_id": case_id,
+                "stage": "inference",
+                "idempotency_key": f"job2-{uuid4()}",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert job2.status_code == 201
+        job2_id = job2.json()["job_id"]
+        assert process_until_job(job2_id) is not None
+
+        result2 = client.get(f"/api/v1/workflow/jobs/{job2_id}/result", headers=AUTH_HEADERS)
+        assert result2.status_code == 200
+        assert result2.json()["output"]["job_id"] == job2_id
+
+        result1_again = client.get(f"/api/v1/workflow/jobs/{job1_id}/result", headers=AUTH_HEADERS)
+        assert result1_again.status_code == 200
+        assert result1_again.json()["output"]["job_id"] == job1_id
+
+
+def test_workflow_submit_invalid_image_path_does_not_create_case():
+    with SessionLocal() as db:
+        before_count = db.scalar(select(func.count()).select_from(Case)) or 0
+
+    with TestClient(app) as client:
+        submit = client.post(
+            "/api/v1/workflow/submit",
+            json={
+                "patient_pseudo_id": f"p-{uuid4()}",
+                "images": [f"/tmp/not-exists-{uuid4()}.png"],
+                "idempotency_key": f"wf-{uuid4()}",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert submit.status_code == 400
+
+    with SessionLocal() as db:
+        after_count = db.scalar(select(func.count()).select_from(Case)) or 0
+    assert after_count == before_count
